@@ -9,6 +9,7 @@ import io
 import coordinatesHelper
 import copy
 import json
+import sys
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join("key.json")
 
@@ -41,10 +42,10 @@ def draw_boxes(image, entries, color):
     for entry in entries:
         bound = entry["bounding_box"]
         draw.polygon([
-            bound.vertices[0].x, bound.vertices[0].y,
-            bound.vertices[1].x, bound.vertices[1].y,
-            bound.vertices[2].x, bound.vertices[2].y,
-            bound.vertices[3].x, bound.vertices[3].y], None, color)
+            bound['vertices'][0]['x'], bound['vertices'][0]['y'],
+            bound['vertices'][1]['x'], bound['vertices'][1]['y'],
+            bound['vertices'][2]['x'], bound['vertices'][2]['y'],
+            bound['vertices'][3]['x'], bound['vertices'][3]['y']], None, color)
     return image
 
 def get_merged_lines(lines, raw_text):
@@ -154,65 +155,71 @@ def image_to_data(path, feature=FeatureType.WORD, desc_bt=False):
     # https://stackoverflow.com/a/65728119
     response_json = AnnotateImageResponse.to_json(response, preserving_proto_field_name=True)
     response = json.loads(response_json)
-    um = init_line_segmentation(response)
-    #print(response)
-    print(um)
-    
-    exit()
-    document = response.full_text_annotation
-    #print(document.text)
+    #um = init_line_segmentation(response)
+
+    if 'error' in response and 'message' in response['error']:
+        raise Exception(
+            "{}\nFor more info on error messages, check: "
+            "https://cloud.google.com/apis/design/errors".format(response.error.message)
+        )
+
+    if 'full_text_annotation' not in response:
+        return []
+    #exit()
+    document = response['full_text_annotation']
+    #print(document['text'])
     
 
     entries = []
     text = ""
     
     # Collect features by enumerating all document features
-    for page_num in range(len(document.pages)):
-        page = document.pages[page_num]
+    for page_num in range(len(document['pages'])):
+        page = document['pages'][page_num]
 
-        for block_num in range(len(page.blocks)):
-            block = page.blocks[block_num]
+        for block_num in range(len(page['blocks'])):
+            block = page['blocks'][block_num]
 
-            for paragraph_num in range(len(block.paragraphs)):
-                paragraph = block.paragraphs[paragraph_num]
+            for paragraph_num in range(len(block['paragraphs'])):
+                paragraph = block['paragraphs'][paragraph_num]
 
-                for word_num in range(len(paragraph.words)):
-                    word = paragraph.words[word_num]
+                for word_num in range(len(paragraph['words'])):
+                    word = paragraph['words'][word_num]
 
-                    for symbol_num in range(len(word.symbols)):
-                        symbol = word.symbols[symbol_num]
+                    for symbol_num in range(len(word['symbols'])):
+                        symbol = word['symbols'][symbol_num]
 
                         if feature == FeatureType.SYMBOL:
                             entry = dict()
-                            entry["text"] = symbol.text
-                            entry["bounding_box"] = symbol.bounding_box
+                            entry["text"] = symbol['text']
+                            entry["bounding_box"] = symbol['bounding_box']
                             entries.append(entry)
                         else:
-                            text += symbol.text
-                            if symbol.property.detected_break:
+                            text += symbol['text']
+                            if 'property' in symbol and 'detected_break' in symbol['property']:
                                 text += breaktype_to_symbol(
-                                    symbol.property.detected_break.type_,
+                                    symbol['property']['detected_break']['type_'],
                                     desc_bt
                                 )
 
                     if feature == FeatureType.WORD:
                         entry = dict()
                         entry["text"] = text
-                        entry["bounding_box"] = word.bounding_box
+                        entry["bounding_box"] = word['bounding_box']
                         entries.append(entry)
                         text = ""
 
                 if feature == FeatureType.PARA:
                     entry = dict()
                     entry["text"] = text
-                    entry["bounding_box"] = paragraph.bounding_box
+                    entry["bounding_box"] = paragraph['bounding_box']
                     entries.append(entry)
                     text = ""
 
             if feature == FeatureType.BLOCK:
                 entry = dict()
                 entry["text"] = text
-                entry["bounding_box"] = block.bounding_box
+                entry["bounding_box"] = block['bounding_box']
                 entries.append(entry)
                 text = ""
 
@@ -224,15 +231,10 @@ def image_to_data(path, feature=FeatureType.WORD, desc_bt=False):
             print(entries[i])
             input()
 
-    #     vertices = (['({},{})'.format(vertex.x, vertex.y)
-    #                 for vertex in text.bounding_poly.vertices])
+    #     vertices = (['({},{})'.format(vertex['x'], vertex['y'])
+    #                 for vertex in text.bounding_poly['vertices']])
 
 
-    if response.error.message:
-        raise Exception(
-            "{}\nFor more info on error messages, check: "
-            "https://cloud.google.com/apis/design/errors".format(response.error.message)
-        )
 
     return entries
 
@@ -257,7 +259,11 @@ def data_raw_to_fulltext(data_raw):
     return fulltext
 
 if __name__ == '__main__':
-    path = "seg/S01200HQU10E.JPG"
+    path_default = "seg/S01200HQU10E.JPG"
+    if len(sys.argv) == 0:
+        path = path_default
+    else:
+        path = sys.argv[1]
     render_doc_text(path)
     data_raw = image_to_data(path, FeatureType.PARA, desc_bt=True)
     data_txt = data_raw_to_fulltext(data_raw)
