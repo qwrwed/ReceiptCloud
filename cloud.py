@@ -13,6 +13,7 @@ import sys
 import pprint
 import cv2
 import ip, ie
+import numpy as np
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join("key.json")
 
@@ -254,6 +255,24 @@ def image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
                 entries.append(entry)
                 text = ""
 
+    entries = add_bbox_info(entries)
+
+    verbose = False
+    if verbose:
+        for i in range(len(entries)):
+            print(f"\n{str(feature)} No. {i}")
+            # print(entries[i]["text"])
+            print(entries[i])
+            input()
+
+    #     vertices = (['({},{})'.format(vertex['x'], vertex['y'])
+    #                 for vertex in text.bounding_poly['vertices']])
+
+    # for
+    return entries
+
+
+def add_bbox_info(entries):
     # https://stackoverflow.com/a/54443282
     for i in range(len(entries)):
         bbox = entries[i]["bounding_box"]
@@ -268,19 +287,6 @@ def image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
             "x": max(verts_x) - min(verts_x),
             "y": max(verts_y) - min(verts_y),
         }
-
-    verbose = False
-    if verbose:
-        for i in range(len(entries)):
-            print(f"\n{str(feature)} No. {i}")
-            # print(entries[i]["text"])
-            print(entries[i])
-            input()
-
-    #     vertices = (['({},{})'.format(vertex['x'], vertex['y'])
-    #                 for vertex in text.bounding_poly['vertices']])
-
-    # for
     return entries
 
 
@@ -312,9 +318,10 @@ def render_doc_text(img_arr, fileout=0):
         img_pil.show()
 
 
-def data_to_lines(entries, threshold=20):
+def sort_data_2d(entries, threshold_factor=0.5):
     entries.sort(key=lambda e: e["bounding_box"]["center"]["y"])
     # pppprint(entries)
+
     diffs = [0]
     for i in range(1, len(entries)):
         diffs.append(
@@ -324,7 +331,6 @@ def data_to_lines(entries, threshold=20):
 
     lines = []
     line = []
-    threshold_factor = 0.25
     # newline threshold = bbox height * threshold_factor
     for i in range(len(entries)):
         # print(diffs[i], [entries[i]['text']])
@@ -333,18 +339,61 @@ def data_to_lines(entries, threshold=20):
             lines.append(line)
             line = []
         line.append(entries[i])
+    lines.append(line)
 
     for i in range(len(lines)):
         lines[i].sort(key=lambda e: e["bounding_box"]["center"]["x"])
 
-    lines_plaintext = []
-    for line in lines:
-        lines_plaintext.append("")
-        for component in line:
-            lines_plaintext[-1] += component["text"].replace("\n", " ")
-        lines_plaintext[-1] = lines_plaintext[-1].strip()
+    return lines
 
-    return lines_plaintext
+
+def group_data_lines(lines):
+
+    # pppprint(lines)
+
+    lines_combined = list()
+
+    for line in lines:
+        # pppprint(line)
+        # input()
+        line_combined = {
+            "bounding_box": {
+                "vertices": [
+                    {"x": np.inf, "y": np.inf},  # x_min, y_min
+                    {"x": 0, "y": np.inf},  # x_max, y_min
+                    {"x": 0, "y": 0},  # x_max, y_max
+                    {"x": np.inf, "y": 0},  # x_min, y_max
+                ]
+            },
+            "text": "",
+        }
+        for component in line:
+            line_combined["text"] += component["text"].replace("\n", " ")
+
+            comp_verts = component["bounding_box"]["vertices"]
+            line_verts = line_combined["bounding_box"]["vertices"]
+            line_verts[0]["x"] = min(line_verts[0]["x"], comp_verts[0]["x"])
+            line_verts[0]["y"] = min(line_verts[0]["y"], comp_verts[0]["y"])
+
+            line_verts[1]["x"] = max(line_verts[1]["x"], comp_verts[1]["x"])
+            line_verts[1]["y"] = min(line_verts[1]["y"], comp_verts[1]["y"])
+
+            line_verts[2]["x"] = max(line_verts[2]["x"], comp_verts[2]["x"])
+            line_verts[2]["y"] = max(line_verts[2]["y"], comp_verts[2]["y"])
+
+            line_verts[3]["x"] = min(line_verts[3]["x"], comp_verts[3]["x"])
+            line_verts[3]["y"] = max(line_verts[3]["y"], comp_verts[3]["y"])
+
+            # line_combined["bounding_box"]["vertices"]
+        line_combined["text"] = line_combined["text"].strip()
+        lines_combined.append(line_combined)
+    lines_combined = add_bbox_info(lines_combined)
+
+    return lines_combined
+
+
+def data_lines_to_text_lines(lines):
+    return [line["text"] for line in lines]
 
 
 def data_raw_to_fulltext(data_raw):
@@ -364,15 +413,18 @@ def pipeline(path):
     # render_doc_text(img_arr)
     data_raw = image_to_data(img_arr, FeatureType.WORD, desc_bt=False)
 
-    img_pil = ip.cvt_cv2_pil(img_arr)
-    draw_boxes(img_pil, data_raw, "blue")
-    img_pil.show()
-
     # pppprint(data_raw)
     # data_txt = data_raw_to_fulltext(data_raw)
+    data_sorted = sort_data_2d(data_raw)
+    # pppprint(data_sorted)
+    data_lines = group_data_lines(data_sorted)
+    text_lines = data_lines_to_text_lines(data_lines)
+    pppprint(text_lines)
 
-    data_txt = data_to_lines(data_raw)
-    print(data_txt)
+    img_pil = ip.cvt_cv2_pil(img_arr)
+    draw_boxes(img_pil, data_raw, "blue")
+    draw_boxes(img_pil, data_lines, "green")
+    img_pil.show()
 
 
 if __name__ == "__main__":
