@@ -58,8 +58,9 @@ def get_upload():
     
     path_img_tmp = f'received.jpg'
     cv2.imwrite(path_img_tmp, img)
-    data_raw = cloud.image_to_data(path_img_tmp, cloud.FeatureType.BLOCK)
-    info = cloud.data_raw_to_fulltext(data_raw)
+    #data_raw = cloud.image_to_data(path_img_tmp, cloud.FeatureType.BLOCK)
+    #info = cloud.data_raw_to_fulltext(data_raw)
+    info, img = cloud.pipeline(path_img_tmp)
     #info = "Sample Info"
     
     img = ip.color(img)

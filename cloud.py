@@ -3,9 +3,17 @@ from google.cloud import vision
 from google.cloud.vision import AnnotateImageResponse
 from enum import Enum
 
+# import openfoodfacts
+import requests
+import dotenv
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from PIL import Image, ImageDraw
 import argparse
 import io
+import re
 import coordinatesHelper
 import copy
 import json
@@ -401,6 +409,13 @@ def data_raw_to_fulltext(data_raw):
     return fulltext
 
 
+def any_in(list_queries, string_to_search):
+    for q in list_queries:
+        if q in string_to_search:
+            return True
+    return False
+
+
 def pipeline(path):
     img_arr = cv2.imread(path)
     # img_arr = ip.grayscale(img_arr)
@@ -419,12 +434,158 @@ def pipeline(path):
     # pppprint(data_sorted)
     data_lines = group_data_lines(data_sorted)
     text_lines = data_lines_to_text_lines(data_lines)
-    pppprint(text_lines)
+    #pppprint(text_lines)
+
+    items = []
+    buffer = ""
+    # pattern for arbitrary text ending in price
+    pattern = "(.+)\s£?([0-9]+\.[0-9]{2})$"
+    for i in range(len(text_lines)):
+        # replace misinterpreted asterisks with asterisks
+        text_lines[i] = text_lines[i].replace(" X ", " * ")
+        text_lines[i] = text_lines[i].replace(" x ", " * ")
+        # remove asterisks
+        text_lines[i] = text_lines[i].replace(" * ", " ")
+        buffer += text_lines[i]
+        match = re.search(pattern, buffer)
+        if match:
+            item = dict()
+            item["name"], item["price"] = match.groups()
+            items.append(item)
+            buffer = ""
+        else:
+            buffer += " "
+    
+    text_full = "\n".join([item["name"] for item in items])
+    # text_full += "\nPERFUME\nCHOCOLATE"
+    price_full = str(sum([float(item["price"]) for item in items]))
+    #print([text_full, price_full])
+    #items.insert(0, {"name": text_full, "price": price_full})
+    #pppprint(items)
+
+        
+
+    url = "https://trackapi.nutritionix.com/v2/natural/nutrients"
+    headers = {
+        "x-app-id": os.environ.get("NUTX_APP_ID"),
+        "x-app-key": os.environ.get("NUTX_APP_KEY"),
+        "x-remote-user-id": os.environ.get("NUTX_USR_ID"),
+    }
+
+    aggregate = False
+
+    request_data = {"query": text_full}
+    if aggregate:
+        request_data.update({"aggregate":"summary"})
+
+    response = requests.post(url, data=request_data, headers=headers)
+    response_json = response.json()
+    #pppprint(response_json)
+
+    info_quantities = dict()
+    # non-foods/non-results are skipped, so it is not possible to map the queried names onto the response items
+    if response.status_code != 200:
+        return None, None
+    info_all = response_json['foods']
+    for i in range(len(info_all)):
+        item = info_all[i]
+        del item["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
+        del item["alt_measures"] # also for readability
+        for k, v in item.items():
+            if isinstance(v, float):
+                if k not in info_quantities:
+                    info_quantities[k] = list()
+                info_quantities[k].append(v)
+    
+    info_quantities_sums = {k: round(sum(v), 2) for k,v in info_quantities.items()}        
+    info_all.insert(0, info_quantities_sums)
+    pppprint(info_all)
+
+    #info_full = response_json['foods'][0]
+    #del info_full["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
+
+
+    
+
+
+    # raise RuntimeError
+    # return
+    # # pppprint(text_lines)
+    # #n_queries = len(items)
+    # for i in range(n_queries):
+    #     item = items[i]
+    #     data = {"query": item["name"]}
+    #     print(data)
+    #     response = requests.post(url, data=data, headers=headers)
+    #     response_json = response.json()
+        
+
+    #     pppprint(response_json)
+    #     #input()
+    #     item["summary"] = (i == 0)
+    #     if response.status_code == 200:
+    #         #pppprint(response_json["foods"])
+    #         # response_json["foods"] always seems to have 1 value
+    #         item["nutx_info"] = response_json["foods"][0]
+    #         del item["nutx_info"]["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
+
+    #         #print(f"{len(response_json['foods'])} items")
+    #     else:
+    #         #pppprint(response)
+    #         #print(f"0 items")
+    #         #print(response_json["message"])
+    #         item["nutx_info"] = None
+    #     #input()
+    #     #print("\n"*100)
+    #     #pppprint(response.keys())
+    #     #pppprint(response)
+        
+    #     # #search_result = openfoodfacts.products.search(item["name"])
+    #     # #https://github.com/Clement-O/Projet_05/blob/70cf42ea5f69fa8226622c3869d1faca61f9b9eb/products/api.py
+    #     # search_result = openfoodfacts.products.advanced_search({
+    #     #     "search_terms": item["name"],
+    #     #     # insufficient documentation to create a query which requests only English results
+    #     #     #"tagtype_0": "countries",
+    #     #     #"tag_contains_0": "contains",
+    #     #     #"tag_0": "uk",
+    #     #     "page_size":1000,
+    #     #     #"lang": "en",
+    #     #     #"cc": "en",
+    #     #     #"lc": "en",
+    #     # })
+
+    #     # n_results = search_result['count']
+    #     # print(f"{n_results} results found for '{item['name']}'")
+    #     # #if n_results > 0:
+    #     #     #pppprint(search_result['products'][0])
+
+    #     # for product in search_result['products']:
+    #     #     willDisplay = False
+    #     #     if product["lang"] == "en":
+    #     #         print("LANG == EN")
+    #     #     else:
+    #     #         print("OTHER LANG")
+
+    #     #     pppprint((product["product_name"], product))
+    #     #     input()
+    #     #     print("\n"*100)
+    #     #     #for k, v in product.items():
+
+    #     # #pppprint([(x["product_name"], {k:v for k,v in x.items() if any_in(["lang", "lc", "cc", "categories"], k)}) for x in search_result['products']])
+    #     # input()
+
+    # # for item in items:
+    # #     pppprint(item)
+    # #     print()
+
+    # # raise RuntimeError
 
     img_pil = ip.cvt_cv2_pil(img_arr)
     draw_boxes(img_pil, data_raw, "blue")
     draw_boxes(img_pil, data_lines, "green")
-    img_pil.show()
+    img_arr = ip.cvt_pil_cv2(img_pil)
+    return info_all, img_arr
+    # img_pil.show()
 
 
 if __name__ == "__main__":

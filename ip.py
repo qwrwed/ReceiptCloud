@@ -319,7 +319,7 @@ def cvt_cv2_pil(img_arr):
 
 
 def cvt_pil_cv2(img_pil):
-    im_arr = np.asarray(img_pil)
+    img_arr = np.asarray(img_pil)
     img_arr = cv2.cvtColor(img_arr, cv2.COLOR_RGB2BGR)
     return img_arr
 
