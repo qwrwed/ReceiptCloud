@@ -491,8 +491,15 @@ def pipeline(path):
         item = info_all[i]
         del item["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
         del item["alt_measures"] # also for readability
+        for k,v in item.items():
+            if k.startswith("nf_"):
+                if item[k] == None:
+                    item[k] = 0
+        pppprint(item)
+        item["nf_carbohydrate_non_sugar"] = item["nf_total_carbohydrate"] - item["nf_sugars"]
+        item["nf_fat_non_saturated"] = item["nf_total_fat"] - item["nf_saturated_fat"]
         for k, v in item.items():
-            if isinstance(v, float):
+            if k.startswith("nf_"):
                 if k not in info_quantities:
                     info_quantities[k] = list()
                 info_quantities[k].append(v)
