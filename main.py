@@ -52,15 +52,18 @@ def get_upload():
     #from preprocessing import process
 
     img = cv2.imdecode(np.frombuffer(request.files['file'].read(), np.uint8), cv2.IMREAD_COLOR)
+    print("\n=:upload shape:=")
+    print(img.shape)
     now = datetime.datetime.now()
     now_string = now.strftime('%Y%m%d%H%M%S')
     #cv2.imwrite(f'Datasets/received/received_{now_string}.jpg', img)
     
     path_img_tmp = f'received.jpg'
-    cv2.imwrite(path_img_tmp, img)
+    # cv2.imwrite(path_img_tmp, img)
+
     #data_raw = cloud.image_to_data(path_img_tmp, cloud.FeatureType.BLOCK)
     #info = cloud.data_raw_to_fulltext(data_raw)
-    info, img = cloud.pipeline(path_img_tmp)
+    info, img = cloud.pipeline(img)
     #info = "Sample Info"
     
     img = ip.color(img)

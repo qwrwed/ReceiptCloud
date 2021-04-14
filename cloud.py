@@ -415,9 +415,12 @@ def any_in(list_queries, string_to_search):
             return True
     return False
 
-
-def pipeline(path):
+def pipeline_load(path):
     img_arr = cv2.imread(path)
+    return pipeline(img_arr)
+
+def pipeline(img_arr):
+    
     # img_arr = ip.grayscale(img_arr)
     # img_arr, _ = ip.threshold_otsu(img_arr)
     # img_arr = ip.filter_bilateral(img_arr)
@@ -446,6 +449,10 @@ def pipeline(path):
         text_lines[i] = text_lines[i].replace(" x ", " * ")
         # remove asterisks
         text_lines[i] = text_lines[i].replace(" * ", " ")
+
+        text_lines[i] = text_lines[i].replace("€", "£")
+        # "£" may be misread
+
         buffer += text_lines[i]
         match = re.search(pattern, buffer)
         if match:
@@ -463,7 +470,8 @@ def pipeline(path):
     #items.insert(0, {"name": text_full, "price": price_full})
     #pppprint(items)
 
-        
+    print("\n==OCR RESULT==")
+    print(text_full)
 
     url = "https://trackapi.nutritionix.com/v2/natural/nutrients"
     headers = {
@@ -495,7 +503,7 @@ def pipeline(path):
             if k.startswith("nf_"):
                 if item[k] == None:
                     item[k] = 0
-        pppprint(item)
+        # pppprint(item)
         item["nf_carbohydrate_non_sugar"] = item["nf_total_carbohydrate"] - item["nf_sugars"]
         item["nf_fat_non_saturated"] = item["nf_total_fat"] - item["nf_saturated_fat"]
         for k, v in item.items():
@@ -506,7 +514,8 @@ def pipeline(path):
     
     info_quantities_sums = {k: round(sum(v), 2) for k,v in info_quantities.items()}        
     info_all.insert(0, info_quantities_sums)
-    pppprint(info_all)
+    print("\n==NUTX RESULT==")
+    pppprint(info_quantities_sums)
 
     #info_full = response_json['foods'][0]
     #del info_full["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
@@ -601,4 +610,4 @@ if __name__ == "__main__":
         path = path_default
     else:
         path = sys.argv[1]
-    pipeline(path)
+    pipeline_load(path)
