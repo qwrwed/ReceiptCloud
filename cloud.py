@@ -1,7 +1,4 @@
 import os
-from google.cloud import vision
-from google.cloud.vision import AnnotateImageResponse
-from enum import Enum
 
 # import openfoodfacts
 import requests
@@ -16,38 +13,16 @@ import io
 import re
 import coordinatesHelper
 import copy
-import json
 import sys
 import pprint
 import cv2
 import ip, ie
-import numpy as np
+import ocr
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join("key.json")
 
 # https://cloud.google.com/vision/docs/fulltext-annotations
 
-
-class FeatureType(Enum):
-    PAGE = 1
-    BLOCK = 2
-    PARA = 3
-    WORD = 4
-    SYMBOL = 5
-
-
-def breaktype_to_symbol(bt, desc=False):
-    break_types = vision.TextAnnotation.DetectedBreak.BreakType
-    breaks = {
-        break_types.SPACE: " ",
-        break_types.SURE_SPACE: " <SS> " if desc else " ",
-        # break_types.EOL_SURE_SPACE: " <ESS>\n" if desc else "\n",
-        break_types.EOL_SURE_SPACE: " <ESS> " if desc else "\n",
-        break_types.LINE_BREAK: "\n",
-    }
-    if bt in breaks:
-        return breaks[bt]
-    return ""
 
 
 def draw_boxes(image, entries, color):
@@ -171,133 +146,6 @@ def arrange_words_in_order(merged_array, k):
     return merged_line
 
 
-def image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
-    """
-    Detects text in the image
-    """
-
-    client = vision.ImageAnnotatorClient()
-
-    # with io.open(path, "rb") as image_file:
-    #     content = image_file.read()
-    img_bytes = ip.cvt_cv2_bytes(img_arr)
-    image = vision.Image(content=img_bytes)
-
-    response = client.document_text_detection(image=image)
-    print("Response received")
-    # https://stackoverflow.com/a/65728119
-    response_json = AnnotateImageResponse.to_json(
-        response, preserving_proto_field_name=True
-    )
-    response = json.loads(response_json)
-    # um = init_line_segmentation(response)
-
-    if "error" in response and "message" in response["error"]:
-        raise Exception(
-            "{}\nFor more info on error messages, check: "
-            "https://cloud.google.com/apis/design/errors".format(response.error.message)
-        )
-
-    if "full_text_annotation" not in response:
-        return []
-    # exit()
-    document = response["full_text_annotation"]
-    # print(document['text'])
-
-    # pprint.PrettyPrinter(indent=4).pprint(document)
-    # input()
-
-    entries = []
-    text = ""
-
-    # Collect features by enumerating all document features
-    for page_num in range(len(document["pages"])):
-        page = document["pages"][page_num]
-
-        for block_num in range(len(page["blocks"])):
-            block = page["blocks"][block_num]
-
-            for paragraph_num in range(len(block["paragraphs"])):
-                paragraph = block["paragraphs"][paragraph_num]
-
-                for word_num in range(len(paragraph["words"])):
-                    word = paragraph["words"][word_num]
-
-                    for symbol_num in range(len(word["symbols"])):
-                        symbol = word["symbols"][symbol_num]
-
-                        if feature == FeatureType.SYMBOL:
-                            entry = dict()
-                            entry["text"] = symbol["text"]
-                            entry["bounding_box"] = symbol["bounding_box"]
-                            entries.append(entry)
-                        else:
-                            text += symbol["text"]
-                            if (
-                                "property" in symbol
-                                and "detected_break" in symbol["property"]
-                            ):
-                                text += breaktype_to_symbol(
-                                    symbol["property"]["detected_break"]["type_"],
-                                    desc_bt,
-                                )
-
-                    if feature == FeatureType.WORD:
-                        entry = dict()
-                        entry["text"] = text
-                        entry["bounding_box"] = word["bounding_box"]
-                        entries.append(entry)
-                        text = ""
-
-                if feature == FeatureType.PARA:
-                    entry = dict()
-                    entry["text"] = text
-                    entry["bounding_box"] = paragraph["bounding_box"]
-                    entries.append(entry)
-                    text = ""
-
-            if feature == FeatureType.BLOCK:
-                entry = dict()
-                entry["text"] = text
-                entry["bounding_box"] = block["bounding_box"]
-                entries.append(entry)
-                text = ""
-
-    entries = add_bbox_info(entries)
-
-    verbose = False
-    if verbose:
-        for i in range(len(entries)):
-            print(f"\n{str(feature)} No. {i}")
-            # print(entries[i]["text"])
-            print(entries[i])
-            input()
-
-    #     vertices = (['({},{})'.format(vertex['x'], vertex['y'])
-    #                 for vertex in text.bounding_poly['vertices']])
-
-    # for
-    return entries
-
-
-def add_bbox_info(entries):
-    # https://stackoverflow.com/a/54443282
-    for i in range(len(entries)):
-        bbox = entries[i]["bounding_box"]
-        verts = bbox["vertices"]
-        verts_x = [verts[i]["x"] for i in range(len(verts))]
-        verts_y = [verts[i]["y"] for i in range(len(verts))]
-        bbox["center"] = {
-            "x": sum(verts_x) / len(verts_x),
-            "y": sum(verts_y) / len(verts_y),
-        }
-        bbox["size"] = {
-            "x": max(verts_x) - min(verts_x),
-            "y": max(verts_y) - min(verts_y),
-        }
-    return entries
-
-
 def naive_char_width(entry):
     print(entry)
     input()
@@ -326,80 +174,6 @@ def render_doc_text(img_arr, fileout=0):
         img_pil.show()
 
 
-def sort_data_2d(entries, threshold_factor=0.5):
-    entries.sort(key=lambda e: e["bounding_box"]["center"]["y"])
-    # pppprint(entries)
-
-    diffs = [0]
-    for i in range(1, len(entries)):
-        diffs.append(
-            entries[i]["bounding_box"]["center"]["y"]
-            - entries[i - 1]["bounding_box"]["center"]["y"]
-        )
-
-    lines = []
-    line = []
-    # newline threshold = bbox height * threshold_factor
-    for i in range(len(entries)):
-        # print(diffs[i], [entries[i]['text']])
-        threshold = entries[i]["bounding_box"]["size"]["y"] * threshold_factor
-        if diffs[i] > threshold:
-            lines.append(line)
-            line = []
-        line.append(entries[i])
-    lines.append(line)
-
-    for i in range(len(lines)):
-        lines[i].sort(key=lambda e: e["bounding_box"]["center"]["x"])
-
-    return lines
-
-
-def group_data_lines(lines):
-
-    # pppprint(lines)
-
-    lines_combined = list()
-
-    for line in lines:
-        # pppprint(line)
-        # input()
-        line_combined = {
-            "bounding_box": {
-                "vertices": [
-                    {"x": np.inf, "y": np.inf},  # x_min, y_min
-                    {"x": 0, "y": np.inf},  # x_max, y_min
-                    {"x": 0, "y": 0},  # x_max, y_max
-                    {"x": np.inf, "y": 0},  # x_min, y_max
-                ]
-            },
-            "text": "",
-        }
-        for component in line:
-            line_combined["text"] += component["text"].replace("\n", " ")
-
-            comp_verts = component["bounding_box"]["vertices"]
-            line_verts = line_combined["bounding_box"]["vertices"]
-            line_verts[0]["x"] = min(line_verts[0]["x"], comp_verts[0]["x"])
-            line_verts[0]["y"] = min(line_verts[0]["y"], comp_verts[0]["y"])
-
-            line_verts[1]["x"] = max(line_verts[1]["x"], comp_verts[1]["x"])
-            line_verts[1]["y"] = min(line_verts[1]["y"], comp_verts[1]["y"])
-
-            line_verts[2]["x"] = max(line_verts[2]["x"], comp_verts[2]["x"])
-            line_verts[2]["y"] = max(line_verts[2]["y"], comp_verts[2]["y"])
-
-            line_verts[3]["x"] = min(line_verts[3]["x"], comp_verts[3]["x"])
-            line_verts[3]["y"] = max(line_verts[3]["y"], comp_verts[3]["y"])
-
-            # line_combined["bounding_box"]["vertices"]
-        line_combined["text"] = line_combined["text"].strip()
-        lines_combined.append(line_combined)
-    lines_combined = add_bbox_info(lines_combined)
-
-    return lines_combined
-
-
 def data_lines_to_text_lines(lines):
     return [line["text"] for line in lines]
 
@@ -419,6 +193,7 @@ def pipeline_load(path):
     img_arr = cv2.imread(path)
     return pipeline(img_arr)
 
+
 def pipeline(img_arr):
     
     # img_arr = ip.grayscale(img_arr)
@@ -429,15 +204,19 @@ def pipeline(img_arr):
     # cv2.waitKey()
 
     # render_doc_text(img_arr)
-    data_raw = image_to_data(img_arr, FeatureType.WORD, desc_bt=False)
+    #data_lines = cloud_ocr(img_arr, feature_type="word")
 
+    data_lines = ocr.ocr_google(img_arr)
+    # data_lines = ocr.ocr_tesseract(img_arr)
+    #pppprint(data_lines)
+
+    
     # pppprint(data_raw)
     # data_txt = data_raw_to_fulltext(data_raw)
-    data_sorted = sort_data_2d(data_raw)
-    # pppprint(data_sorted)
-    data_lines = group_data_lines(data_sorted)
+    
     text_lines = data_lines_to_text_lines(data_lines)
     #pppprint(text_lines)
+    
 
     items = []
     buffer = ""
@@ -597,9 +376,11 @@ def pipeline(img_arr):
     # # raise RuntimeError
 
     img_pil = ip.cvt_cv2_pil(img_arr)
-    draw_boxes(img_pil, data_raw, "blue")
-    draw_boxes(img_pil, data_lines, "green")
-    img_arr = ip.cvt_pil_cv2(img_pil)
+
+    # draw_boxes(img_pil, data_raw, "blue")
+    # draw_boxes(img_pil, data_lines, "green")
+    # img_arr = ip.cvt_pil_cv2(img_pil)
+
     return info_all, img_arr
     # img_pil.show()
 
