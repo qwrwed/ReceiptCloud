@@ -1,6 +1,5 @@
 import os
 
-# import openfoodfacts
 import requests
 import dotenv
 from dotenv import load_dotenv
@@ -11,7 +10,6 @@ from PIL import Image, ImageDraw
 import argparse
 import io
 import re
-import coordinatesHelper
 import copy
 import sys
 import pprint
