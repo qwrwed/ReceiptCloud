@@ -5,3 +5,6 @@ env/
 .env
 key.json
 *.pkl
+SROIE/task*
+SROIE/Evaluation Scripts/*/*.zip
+SROIE/Evaluation Scripts/*/*/
