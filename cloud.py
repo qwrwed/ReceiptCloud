@@ -88,30 +88,6 @@ def get_merged_lines(lines, raw_text):
     return merged_array
 
 
-def init_line_segmentation(data):
-
-    Y_MAX = coordinatesHelper.get_y_max(data)
-    data = coordinatesHelper.invert_axis(data, Y_MAX)
-
-    # The first index refers to the auto identified words which belongs to a sings line
-    lines = data["text_annotations"][0]["description"].split("\n")
-
-    # gcp vision full text
-    raw_text = copy.deepcopy(data["text_annotations"])
-
-    lines.reverse()
-    raw_text.reverse()
-
-    raw_text.pop()
-
-    merged_array = get_merged_lines(lines, raw_text)
-
-    coordinatesHelper.get_bounding_polygon(merged_array)
-    coordinatesHelper.combine_bounding_polygon(merged_array)
-
-    return construct_line_with_bounding_polygon(merged_array)
-
-
 def construct_line_with_bounding_polygon(merged_array):
     final_array = []
 
@@ -157,13 +133,13 @@ def render_doc_text(img_arr, fileout=0):
     # image = Image.open(filein)
     # image = img_bytes
     img_pil = ip.cvt_cv2_pil(img_arr)
-    entries = image_to_data(img_arr, FeatureType.BLOCK)
+    entries = ocr.cloud_image_to_data(img_arr, ocr.FeatureType.BLOCK)
     draw_boxes(img_pil, entries, "blue")
 
-    entries = image_to_data(img_arr, FeatureType.PARA)
+    entries = ocr.cloud_image_to_data(img_arr, ocr.FeatureType.PARA)
     draw_boxes(img_pil, entries, "red")
 
-    entries = image_to_data(img_arr, FeatureType.WORD)
+    entries = ocr.cloud_image_to_data(img_arr, ocr.FeatureType.WORD)
     draw_boxes(img_pil, entries, "yellow")
 
     if fileout != 0:

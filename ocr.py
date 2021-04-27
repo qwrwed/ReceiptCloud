@@ -248,7 +248,7 @@ def ocr_google(img_arr, feature_type=FeatureType.LINE):
 
     img_arr = ip.grayscale(img_arr)
 
-    data = image_to_data(img_arr, feature_type, desc_bt=False)
+    data = cloud_image_to_data(img_arr, feature_type, desc_bt=False)
     # pp.pprint(data)
     if use_lines:
         data = sort_data_2d(data)
@@ -261,7 +261,7 @@ def ocr_google(img_arr, feature_type=FeatureType.LINE):
 
     return data
 
-def image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
+def cloud_image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
     """
     Detects text in the image
     """
