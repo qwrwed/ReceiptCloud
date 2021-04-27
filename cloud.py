@@ -271,9 +271,9 @@ def pipeline(img_arr):
     # non-foods/non-results are skipped, so it is not possible to map the queried names onto the response items
     if response.status_code != 200:
         return None, None
-    info_all = response_json['foods']
-    for i in range(len(info_all)):
-        item = info_all[i]
+    item_list = response_json['foods']
+    for i in range(len(item_list)):
+        item = item_list[i]
         del item["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
         del item["alt_measures"] # also for readability
         for k,v in item.items():
@@ -290,9 +290,13 @@ def pipeline(img_arr):
                 info_quantities[k].append(v)
     
     info_quantities_sums = {k: round(sum(v), 2) for k,v in info_quantities.items()}        
-    info_all.insert(0, info_quantities_sums)
+    info = {
+        "summary": info_quantities_sums,
+        "list": item_list
+    }
+    #item_list.insert(0, info_quantities_sums)
     print("\n==NUTX RESULT==")
-    pppprint(info_quantities_sums)
+    pppprint(info)
 
     #info_full = response_json['foods'][0]
     #del info_full["full_nutrients"] # for readability; nutrient ids are indecipherable without GET to https://trackapi.nutritionix.com/v2/utils/nutrients anyway
@@ -379,7 +383,7 @@ def pipeline(img_arr):
     # draw_boxes(img_pil, data_lines, "green")
     # img_arr = ip.cvt_pil_cv2(img_pil)
 
-    return info_all, img_arr
+    return info, img_arr
     # img_pil.show()
 
 

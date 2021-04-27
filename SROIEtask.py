@@ -14,7 +14,6 @@ import cloud
 import pprint as pp
 import ocr
 
-# from paddleocr import PaddleOCR
 
 
 def process_img(img):
@@ -113,8 +112,7 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
 
         data_raw = OCR_FN(img, data_group)
         data_SROIE = ocr.to_SROIE(data_raw, include_text, include_bbox, to_string=True)
-        
-        # ocr = PaddleOCR(use_angle_cls=True, det_model_dir= <weight_file_dir>, rec_model_dir= <weight_file_dir>, cls_model_dir= <weight_file_dir>, use_space_char=True, use_gpu=True)
+    
 
         # pp.pprint(data_SROIE)
         # exit()
