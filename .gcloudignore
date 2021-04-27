@@ -19,3 +19,7 @@ env/
 __pycache__/
 # Ignored by the build system
 /setup.cfg
+
+SROIE/task*
+SROIE/Evaluation Scripts/*/*.zip
+SROIE/Evaluation Scripts/*/*/
