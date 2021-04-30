@@ -2,7 +2,7 @@ import os
 import numpy as np, cv2
 from tqdm import tqdm
 from zipfile import ZipFile
-import ie, ip
+import ip
 import pytesseract
 from pytesseract import Output
 import subprocess
@@ -14,8 +14,6 @@ import cloud
 import pprint as pp
 import ocr
 
-
-
 def process_img(img):
     # img = ip.grayscale(img)
     # img = ip.highpass_dct(img)
@@ -23,7 +21,6 @@ def process_img(img):
     # img, _ = ip.threshold_otsu(img)
     # img = ip.threshold_adaptive(img)
     return img
-
 
 def zip_7z(
     name_outfile,
@@ -55,7 +52,6 @@ def zip_7z(
 
     return ret
 
-
 def evaluate_single(file_txt, input_dir, output_dir, submit_dir):
     submit_file = os.path.join(submit_dir, file_txt)
     gt_file = os.path.join(input_dir, file_txt)
@@ -74,11 +70,27 @@ def evaluate_single(file_txt, input_dir, output_dir, submit_dir):
     )
     return ret.decode()
 
-
 def tqdm_range(n, use_tqdm=True):
     if use_tqdm:
         return tqdm(range(n))
     return range(n)
+
+def gt_to_data(filepath):
+    entries = []
+    keys = ["left", "top", "right", "_", "_", "bottom", "_", "_", "text"]
+    with open(filepath, "r") as f:
+        for line in f:
+            values = line.split(",")
+            entry = {
+                "bounding_box": {"vertices": [{"x": int(values[i]), "y": int(values[i+1])} for i in range(0, 8, 2)]},
+                "text": ",".join(values[8:])
+            }
+            # entry = dict(zip(keys, values))
+            #entry = {k: (int(v) if k != "text" else v) for k, v in entry.items()}
+            #del entry["_"]
+            entries.append(entry)
+    ocr.add_bbox_info(entries)
+    return entries
 
 def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
 
@@ -93,6 +105,16 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
             rmtree(tmp_dir)
         os.makedirs(tmp_dir)
 
+    include_bbox = task in (0, 1, 3)
+    include_text = task in (0, 2, 3)
+    task_1_group = ocr.FeatureType.LINE
+    # task_1_group = ocr.FeatureType.LINE_SPLIT
+    # task_1_group = ocr.FeatureType.WORD
+    
+    data_group = task_1_group if task in (0, 1) else ocr.FeatureType.WORD
+    print("Group text by: ", end="")
+    print(data_group)
+
     files_txt_new = set()
     for i in tqdm_range(len(files_img), not show_imgs):
         file_img = files_img[i]
@@ -104,11 +126,7 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
         img = cv2.imread(os.path.join(input_dir, file_img))
         img = process_img(img)
 
-        include_bbox = task in (0, 1, 3)
-        include_text = task in (0, 2, 3)
-        task_1_group = ocr.FeatureType.LINE
-        # task_1_group = "word"
-        data_group = task_1_group if task in (0, 1) else ocr.FeatureType.WORD
+        
 
         data_raw = OCR_FN(img, data_group)
         data_SROIE = ocr.to_SROIE(data_raw, include_text, include_bbox, to_string=True)
@@ -120,8 +138,10 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
         if task in (0, 1, 2):
             txt_submit = "\n".join(data_SROIE)
         elif task == 3:
-            key_info = ie.extract_key_info()
-            txt_submit = json.dumps(key_info)
+            print("Task 3 Not Supported")
+            exit()
+            # key_info = ie.extract_key_info()
+            # txt_submit = json.dumps(key_info)
 
         # print([txt_submit])
 
@@ -132,19 +152,22 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
             files_txt_new.add(file_txt)
 
         if show_imgs:
-            data_gt = ie.gt_to_data(os.path.join(input_dir, file_txt))
+            data_entries = data_raw
+            # print(data_entries)
+            # print(data_raw)
+            data_gt = gt_to_data(os.path.join(input_dir, file_txt))
             img = ip.draw_compare_boxes(img, data_gt, data_entries)
             img = ip.draw_data(
                 img,
-                data_entries,
+                data_raw,
                 draw_boxes=False,
-                draw_text=True,
+                draw_text=False,
                 color_text=(0, 127, 0),
                 offset_text=True,
             )
             print(f"\nEvaluating {file_img}")
             result = evaluate_single(file_txt, input_dir, output_dir, submit_dir)
-
+            print(result)
             cv2.imshow(file_img, img)
             cv2.waitKey()
             cv2.destroyAllWindows()
@@ -156,7 +179,6 @@ def process_files(files_img, ocr_engine, show_imgs=False, batch=True):
         files_txt_old = files_txt_all - files_txt_new
         for file in files_txt_old:
             os.remove(os.path.join(submit_dir, file))
-
 
 if __name__ == "__main__":
 

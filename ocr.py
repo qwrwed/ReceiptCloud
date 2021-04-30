@@ -17,7 +17,7 @@ import pprint as pp
 import pytesseract
 from pytesseract import Output
 
-import ie, ip
+import ip
 
 # UTILITIES
 
@@ -33,9 +33,9 @@ class FeatureType(Enum):
     BLOCK = 2
     PAR = 3
     LINE = 4
-    WORD = 5
-    SYMBOL = 6
-
+    LINE_SPLIT = 5
+    WORD = 6
+    SYMBOL = 7
     
     
 def add_bbox_info(entries):
@@ -45,6 +45,28 @@ def add_bbox_info(entries):
         verts = bbox["vertices"]
         verts_x = [verts[i]["x"] for i in range(len(verts))]
         verts_y = [verts[i]["y"] for i in range(len(verts))]
+        verts_wrap = verts + [verts[0]]
+        bbox_lines = [(
+                verts_wrap[i]["x"], #"x1":
+                verts_wrap[i]["y"], #"y1":
+                verts_wrap[i+1]["x"], #"x2":
+                verts_wrap[i+1]["y"], #"y2":
+        ) for i in range(len(verts))]
+
+        line_angles_flat = [0, 270, 180, 90]
+
+        bbox_line_angles = [
+            ((np.arctan2(y1-y2, x2-x1) * 180 / np.pi) + 360) % 360
+            for x1,y1,x2,y2 in bbox_lines]
+        
+        bbox_line_angle_offsets = [
+            bbox_line_angles[i] - line_angles_flat[i] for i in range(4)]
+        
+        # bbox["line_angles"] = bbox_line_angles
+        # bbox["line_angle_offsets"] = bbox_line_angle_offsets
+
+        bbox["avg_line_rot_offset"] = sum(np.abs(offset) for offset in bbox_line_angle_offsets) / 4
+
         bbox["center"] = {
             "x": sum(verts_x) / len(verts_x),
             "y": sum(verts_y) / len(verts_y),
@@ -52,6 +74,12 @@ def add_bbox_info(entries):
         bbox["size"] = {
             "x": max(verts_x) - min(verts_x),
             "y": max(verts_y) - min(verts_y),
+        }
+        bbox["bounds"] = {
+            "left": min(verts_x),
+            "right": max(verts_x),
+            "top": min(verts_y),
+            "bottom": max(verts_y),
         }
     return entries
 
@@ -175,7 +203,6 @@ def raw_to_entries(data_raw):
             entries.append(entry)
     return entries
 
-
 def group_data(entries_in, key):
     key += "_num"
     entries_out = []
@@ -215,7 +242,6 @@ def group_data(entries_in, key):
     
     return entries_out
 
-
 def entries_to_lines(entries, include_text=True, include_bbox=True, to_string=False):
     lines = []
     for entry in entries:
@@ -237,22 +263,42 @@ def entries_to_lines(entries, include_text=True, include_bbox=True, to_string=Fa
         lines.append(line)
     return lines
 
+def remove_bad_entries(entries, threshold_deg = 20):
+    # heavily rotated text should be discarded
+    i = 0
+    while i < len(entries):
+        if entries[i]["bounding_box"]["avg_line_rot_offset"] > threshold_deg:
+            entries.pop(i)
+        else:
+            i += 1
+        #check entries[i]
 
 # GOOGLE CLOUD VISION OCR
 
 def ocr_google(img_arr, feature_type=FeatureType.LINE):
+    desc_bt = False
+
     use_lines = False
+    use_split_lines = False
+
+    if feature_type == FeatureType.LINE_SPLIT:
+        use_split_lines = True
+        feature_type = FeatureType.LINE
+
     if feature_type == FeatureType.LINE:
         use_lines = True
         feature_type = FeatureType.WORD
-
+    
     img_arr = ip.grayscale(img_arr)
 
-    data = cloud_image_to_data(img_arr, feature_type, desc_bt=False)
-    # pp.pprint(data)
+    data = cloud_image_to_data(img_arr, feature_type, desc_bt)
+    remove_bad_entries(data)
+    #pp.pprint(data)
+
     if use_lines:
-        data = sort_data_2d(data)
-        data = group_data_lines(data)
+        lines = words_to_lines(data)
+        line_parts = lines_to_line_parts(lines, use_split_lines)
+        data = group_data_lines(line_parts)
 
     strip_newlines = True
     if strip_newlines:
@@ -396,13 +442,16 @@ def cloud_image_to_data(img_arr, feature=FeatureType.WORD, desc_bt=False):
     # for
     return entries
 
-def sort_data_2d(entries, threshold_factor=0.5):
+def words_to_lines(entries, threshold_factor=0.5):
+    # pp.pprint(entries)
+    # input()
+    
     entries.sort(key=lambda e: e["bounding_box"]["center"]["y"])
     # pppprint(entries)
 
-    diffs = [0]
+    diffs_y = [0]
     for i in range(1, len(entries)):
-        diffs.append(
+        diffs_y.append(
             entries[i]["bounding_box"]["center"]["y"]
             - entries[i - 1]["bounding_box"]["center"]["y"]
         )
@@ -412,15 +461,54 @@ def sort_data_2d(entries, threshold_factor=0.5):
     # newline threshold = bbox height * threshold_factor
     for i in range(len(entries)):
         # print(diffs[i], [entries[i]['text']])
-        threshold = entries[i]["bounding_box"]["size"]["y"] * threshold_factor
-        if diffs[i] > threshold:
+        threshold_v = entries[i]["bounding_box"]["size"]["y"] * threshold_factor
+        if diffs_y[i] > threshold_v:
             lines.append(line)
             line = []
         line.append(entries[i])
     lines.append(line)
 
+    for line in lines:
+        line.sort(key=lambda e: e["bounding_box"]["center"]["x"])
+
+    return lines
+
+def lines_to_line_parts(lines, split_lines=False, chars_threshold=3, min_threshold=10):
+    """
+    lines: entries
+    chars_threshold: split if gap is more than this many chars wide (from average char width of word)
+    min_threshold: gap between words must be at least this wide to split, regardless of word/char width
+    """
+    
+    # ABOVE:
+    # lines is a list of each line
+    # each line is a list of words
+    # BELOW:
+    # lines is a list of each line
+    # each line is a list of line parts
+    #  if lines are not split, there is only one line part per line
+    # each line part is a list of words
+    lines_new = []
     for i in range(len(lines)):
-        lines[i].sort(key=lambda e: e["bounding_box"]["center"]["x"])
+        line = lines[i]
+        if not split_lines:
+            lines_new.append([line])
+            continue
+        
+        line_new = []
+        line_parts = []
+        line_part = [line[0]]
+        for i in range(1, len(line)):
+            avg_char_width = line[i]["bounding_box"]["size"]["x"] / len(line[i]["text"])
+            threshold_h = max(min_threshold, avg_char_width*chars_threshold)
+            if threshold_h < line[i]["bounding_box"]["bounds"]["left"] - line[i - 1]["bounding_box"]["bounds"]["right"]:
+                line_new.append(line_part)
+                line_part = []
+            line_part.append(line[i])
+        line_new.append(line_part)
+        lines_new.append(line_new)
+
+    lines = lines_new
 
     return lines
 
@@ -454,48 +542,30 @@ def ocr_entry_init():
 
 def group_data_lines(lines):
 
-    # pppprint(lines)
-
-    lines_combined = list()
+    line_parts_combined = list()
 
     for line in lines:
-        # pppprint(line)
-        # input()
-        line_combined = ocr_entry_init()
-        for component in line:
-            line_combined["text"] += component["text"].replace("\n", " ")
-
-            comp_verts = component["bounding_box"]["vertices"]
-            line_verts = line_combined["bounding_box"]["vertices"]
-            line_verts[0]["x"] = min(line_verts[0]["x"], comp_verts[0]["x"])
-            line_verts[0]["y"] = min(line_verts[0]["y"], comp_verts[0]["y"])
-
-            line_verts[1]["x"] = max(line_verts[1]["x"], comp_verts[1]["x"])
-            line_verts[1]["y"] = min(line_verts[1]["y"], comp_verts[1]["y"])
-
-            line_verts[2]["x"] = max(line_verts[2]["x"], comp_verts[2]["x"])
-            line_verts[2]["y"] = max(line_verts[2]["y"], comp_verts[2]["y"])
-
-            line_verts[3]["x"] = min(line_verts[3]["x"], comp_verts[3]["x"])
-            line_verts[3]["y"] = max(line_verts[3]["y"], comp_verts[3]["y"])
-
-            # line_combined["bounding_box"]["vertices"]
-        line_combined["text"] = line_combined["text"].strip()
-        lines_combined.append(line_combined)
-    lines_combined = add_bbox_info(lines_combined)
-
-    return lines_combined
+        for line_part in line:
+            line_part_combined = ocr_entry_init()
+            for component in line_part:
+                line_part_combined["text"] += component["text"].replace("\n", " ")
+                bbox_extend(line_part_combined["bounding_box"], component["bounding_box"])
+            line_part_combined["text"] = line_part_combined["text"].strip()
+            line_parts_combined.append(line_part_combined)
+    line_parts_combined = add_bbox_info(line_parts_combined)
+    
+    return line_parts_combined
 
 
 
 def breaktype_to_symbol(bt, desc=False):
     break_types = vision.TextAnnotation.DetectedBreak.BreakType
     breaks = {
-        break_types.SPACE: " ",
+        break_types.SPACE: " <S> " if desc else " ",
         break_types.SURE_SPACE: " <SS> " if desc else " ",
         # break_types.EOL_SURE_SPACE: " <ESS>\n" if desc else "\n",
         break_types.EOL_SURE_SPACE: " <ESS> " if desc else "\n",
-        break_types.LINE_BREAK: "\n",
+        break_types.LINE_BREAK: " <LB> " if desc else "\n",
     }
     if bt in breaks:
         return breaks[bt]

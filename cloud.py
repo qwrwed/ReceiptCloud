@@ -14,7 +14,7 @@ import copy
 import sys
 import pprint
 import cv2
-import ip, ie
+import ip
 import ocr
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = os.path.join("key.json")
@@ -235,7 +235,11 @@ def pipeline(img_arr):
 
     aggregate = False
 
-    request_data = {"query": text_full}
+    request_data = {
+        "query": text_full,
+        # "line_delimited": True,
+        # "use_branded_foods": True,
+    }
     if aggregate:
         request_data.update({"aggregate":"summary"})
 

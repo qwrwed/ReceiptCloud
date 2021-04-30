@@ -283,11 +283,16 @@ def draw_data(
         color_text = (0, 0, 0)
 
     for entry in data_by_entry:
-        bbox_start = (entry["left"], entry["top"])
-        bbox_end = (entry["right"], entry["bottom"])
+        pts = np.array([[v["x"], v["y"]] for v in entry["bounding_box"]["vertices"]], np.int32)
+        bbox_start = tuple(pts[0])
+        bbox_start = tuple(pts[2])
+        pts = pts.reshape((-1,1,2))
+        # bbox_start = (entry["left"], entry["top"])
+        # bbox_end = (entry["right"], entry["bottom"])
         thickness = 2
         if draw_boxes:
-            img = cv2.rectangle(img, bbox_start, bbox_end, color_boxes, thickness)
+            #img = cv2.rectangle(img, bbox_start, bbox_end, color_boxes, thickness)
+            img = cv2.polylines(img, [pts], True, color_boxes, thickness)
         if draw_text:
             if offset_text:
                 img = cv2.putText(
