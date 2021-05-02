@@ -234,4 +234,5 @@ if __name__ == "__main__":
                 f"-s={os.path.join('.', output_dir,'submit.zip')}",
             ]
         )
+        print("\nDisplaying overall results:")
         print(ret.decode())

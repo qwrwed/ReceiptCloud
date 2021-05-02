@@ -263,7 +263,7 @@ def entries_to_lines(entries, include_text=True, include_bbox=True, to_string=Fa
         lines.append(line)
     return lines
 
-def remove_bad_entries(entries, threshold_deg = 20):
+def remove_bad_entries(entries, threshold_deg = 45):
     # heavily rotated text should be discarded
     i = 0
     while i < len(entries):
@@ -292,7 +292,7 @@ def ocr_google(img_arr, feature_type=FeatureType.LINE):
     img_arr = ip.grayscale(img_arr)
 
     data = cloud_image_to_data(img_arr, feature_type, desc_bt)
-    remove_bad_entries(data)
+    # remove_bad_entries(data, 45)
     #pp.pprint(data)
 
     if use_lines:
